@@ -1,0 +1,132 @@
+
+
+---Role Assignment
+az role assignment create \
+  --assignee-object-id 63639d80-1c16-4fc3-bdb8-dea416c9c52c \
+  --assignee-principal-type ServicePrincipal \
+  --role "Foundry User" \
+  --scope "/subscriptions/afa9f6aa-0d63-44aa-b622-66b6328a301f/resourceGroups/rg-cookie/providers/Microsoft.CognitiveServices/accounts/cog-xmitjkte2pasg"
+
+---Error-resolver-agent
+You are an expert DevOps AI agent. You will receive an error log entry. 
+Use the search tool to find the exact root cause, troubleshooting steps, and code fixes.
+Output your final response in clean Markdown optimized for a GitHub issue. 
+Include sections: ## Error Summary, ## Root Cause Analysis, and ## Step-by-Step Resolution.
+
+---GitHub-issue-manager
+You are a GitHub Repository Automator. You will receive an issue guide formatted in Markdown. 
+Your absolute requirement is to interact with the "kurbegovic/agentic-ai-playground” repository:
+1. Search the "agentic-ai-playground" repository for any existing issues matching this error context.
+2. Evaluate the state of the matches:
+   - If an OPEN ticket exists: DO NOT create a new issue. Instead, use the GitHub tool to add a comment to that open ticket stating: "This error was detected again by the system monitor."
+   - If a CLOSED ticket exists: Use the GitHub tool to create a NEW issue containing the markdown troubleshooting guide. At the very bottom of the new issue, append: "References historical issue #[insert closed ticket number here]".
+   - If NO ticket exists: Use the GitHub tool to create a NEW issue with the detailed markdown troubleshooting guide.
+
+---Sample errors:
+2026-07-11 11:15:30.452 [Thread-4] ERROR com.app.services.UserService - Failed to update user profile. User ID: usr_8831.
+java.sql.SQLException: Connection timeout expired while waiting for a response from the database.
+    at com.app.database.ConnectionPool.getConnection(ConnectionPool.java:45)
+    at com.app.services.UserService.updateProfile(UserService.java:112)
+    at com.app.controllers.UserController.handleUpdate(UserController.java:23)
+
+2026-07-11 11:16:02.119 [Thread-7] ERROR com.app.services.OrderService - Failed to process checkout. Order ID: ord_5521.
+com.app.exceptions.PaymentGatewayException: Read timeout occurred while verifying credit card authorization.
+    at com.app.http.HttpClient.sendRequest(HttpClient.java:88)
+    at com.app.services.OrderService.processCheckout(OrderService.java:204)
+    at com.app.controllers.OrderController.handleCheckout(OrderController.java:41)
+
+---Program.cs
+using Azure.AI.AgentServer.Core;
+using Azure.AI.AgentServer.Responses;
+using Azure.AI.AgentServer.Responses.Models;
+using Azure.AI.Projects;
+using Azure.Core;
+using Azure.Identity;
+using DotNetEnv;
+using Microsoft.Agents.AI;
+using Microsoft.Agents.AI.Foundry.Hosting;
+using Microsoft.Agents.AI.Workflows;
+
+#pragma warning disable MAAI001
+
+Env.TraversePath().Load();
+
+var projectEndpoint = new Uri(Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT")
+    ?? throw new InvalidOperationException("FOUNDRY_PROJECT_ENDPOINT environment variable is not set."));
+
+// Credential selection: local dev (azd ai agent run) has no Managed Identity but
+// has Azure CLI available. Deployed containers have Managed Identity available but
+// do NOT have Azure CLI installed. IDENTITY_ENDPOINT is set only when Managed
+// Identity is available (App Service, Container Apps, Functions, and Foundry
+// hosted agent containers), so it reliably distinguishes the two environments.
+var hasManagedIdentity = Environment.GetEnvironmentVariable("IDENTITY_ENDPOINT") is not null;
+
+TokenCredential credential = hasManagedIdentity
+    ? new DefaultAzureCredential()
+    : new AzureCliCredential();
+
+var projectClient = new AIProjectClient(projectEndpoint, credential);
+
+// Fetch existing, already-published agents by name. GetAgentAsync (no version
+// argument) always resolves the latest published version, so you don't need to
+// manually update a version number in code every time you republish an agent.
+var errorResolverResult = await projectClient.AgentAdministrationClient
+    .GetAgentAsync("error-resolver-agent", CancellationToken.None);
+var githubIssueManagerResult = await projectClient.AgentAdministrationClient
+    .GetAgentAsync("github-issue-manager", CancellationToken.None);
+
+AIAgent errorResolverAgent = projectClient.AsAIAgent(errorResolverResult.Value);
+AIAgent githubIssueManagerAgent = projectClient.AsAIAgent(githubIssueManagerResult.Value);
+
+// Sequential chain: error-resolver-agent -> github-issue-manager
+AIAgent agent = AgentWorkflowBuilder
+    .BuildSequential("devops-error-pipeline", errorResolverAgent, githubIssueManagerAgent)
+    .AsAIAgent(
+        name: "devops-error-pipeline",
+        description: "Analyzes error logs and creates or updates GitHub issues with root cause and resolution steps.");
+
+var builder = AgentHost.CreateBuilder(args);
+builder.Services.AddFoundryResponses(agent);
+
+// Local dev fallback: the real Foundry platform injects an x-agent-user-id header
+// automatically for session isolation. Running locally via `azd ai agent run` has
+// nothing supplying that header, which otherwise causes a
+// "HostedSessionIsolationKeyProvider returned null" crash. This override supplies
+// a static fallback for local testing only.
+builder.Services.AddSingleton<HostedSessionIsolationKeyProvider, LocalDevSessionIsolationKeyProvider>();
+
+builder.RegisterProtocol("responses", endpoints => endpoints.MapFoundryResponses());
+
+var app = builder.Build();
+app.Run();
+
+sealed class LocalDevSessionIsolationKeyProvider : HostedSessionIsolationKeyProvider
+{
+    public override ValueTask<HostedSessionContext> GetKeysAsync(
+        ResponseContext context,
+        CreateResponse request,
+        CancellationToken cancellationToken)
+    {
+        return ValueTask.FromResult(new HostedSessionContext("local-dev-user"));
+    }
+}
+
+>>> PAT
+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
+
+>>> Local Testing
+azd ai agent run
+
+>>> Deploy
+azd deploy
+
+>>> Azure testing
+azd ai agent invoke workflows "Global System Error Log Processing at System.Runtime.Deployed Assembly" --output raw
+
+>>> Http Body
+{
+  "input": "@{decodeBase64(triggerBody()?['ContentData'])}"
+}
+
+>>> Condition
+json(base64ToString(body('HTTP')?['$content']))?['status']
