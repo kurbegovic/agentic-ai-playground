@@ -111,9 +111,6 @@ sealed class LocalDevSessionIsolationKeyProvider : HostedSessionIsolationKeyProv
     }
 }
 
->>> GitHub PAT
-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
-
 >>> Local Testing
 azd ai agent run
 
