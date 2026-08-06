@@ -1,0 +1,19 @@
+{
+  "version": "2.0",
+  "logging": {
+    "applicationInsights": {
+      "samplingSettings": { "isEnabled": true, "excludedTypes": "Request" }
+    }
+  },
+  "extensionBundle": {
+    "id": "Microsoft.Azure.Functions.ExtensionBundle",
+    "version": "[4.*, 5.0.0)"
+  },
+  "extensions": {
+    "mcp": {
+      "serverName": "ticket-management-server",
+      "serverVersion": "1.0.0",
+      "instructions": "Tools for looking up and listing IT support tickets."
+    }
+  }
+}
